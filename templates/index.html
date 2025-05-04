@@ -1,0 +1,39 @@
+from flask import Flask, request, render_template, jsonify
+import os
+from deepfake_detection import build_model, detect_deepfake
+from werkzeug.utils import secure_filename
+
+app = Flask(__name__)
+app.config['UPLOAD_FOLDER'] = 'uploads'
+app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'mp4'}
+
+# Build the model directly instead of loading a fine-tuned one
+model = build_model()
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+    if file and allowed_file(file.filename):
+        filename = secure_filename(file.filename)
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(file_path)
+        is_video = filename.endswith('.mp4')
+        pred, message = detect_deepfake(model, file_path, is_video)
+        os.remove(file_path)
+        return jsonify({'result': message, 'confidence': float(pred)})
+    return jsonify({'error': 'Invalid file type'}), 400
+
+if __name__ == '__main__':
+    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+    app.run(debug=True)
